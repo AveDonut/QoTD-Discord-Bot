@@ -44,11 +44,11 @@ ROOT_DIR = THIS_FILE.parent
 TOKEN = os.getenv("BOTTOKEN")
 
 # channel where QoTD will be posted every day
-QOTD_CHANNEL = os.getenv("QOTDCHANNEL")
+QOTD_CHANNEL = int(os.getenv("QOTDCHANNEL") or "0")
 # channel where mods will see error messages
-MODERATION_CHANNEL = os.getenv("MODERATIONCHANNEL")
+MODERATION_CHANNEL = int(os.getenv("MODERATIONCHANNEL") or "0")
 # role that bot will ping for QoTD
-ROLEPING = os.getenv("ROLEPING")
+ROLE_PING = os.getenv("ROLEPING")
 
 # file where suggestions are stored
 SUGGESTIONS_PATH = ROOT_DIR / "Suggestions.txt"
@@ -63,6 +63,33 @@ REJECTED_QOTD_PATH = ROOT_DIR / "RejectedQoTD.txt"
 POSTATHOUR = 10
 
 
+def get_qotd_channel() -> (
+    discord.channel.VoiceChannel
+    | discord.channel.StageChannel
+    | discord.channel.TextChannel
+    | discord.threads.Thread
+):
+    """Return Question of the Day channel."""
+    channel = bot.get_channel(QOTD_CHANNEL)
+    if channel is None:
+        raise ValueError(
+            f"{QOTD_CHANNEL = } does not exist!",
+        )
+    if not isinstance(
+        channel,
+        (
+            discord.channel.VoiceChannel,
+            discord.channel.StageChannel,
+            discord.channel.TextChannel,
+            discord.threads.Thread,
+        ),
+    ):
+        raise ValueError(
+            f"{QOTD_CHANNEL = } is not the right type of channel!",
+        )
+    return channel
+
+
 class QotdBot(commands.Bot):
     """Question of the Day Discord bot."""
 
@@ -75,7 +102,7 @@ class QotdBot(commands.Bot):
         try:
             synced = await self.tree.sync()
 
-            channel = bot.get_channel(QOTD_CHANNEL)
+            channel = get_qotd_channel()
             await self.timer.start(channel)
 
             print(f"Synced {len(synced)} commands.")
@@ -86,7 +113,15 @@ class QotdBot(commands.Bot):
         self.msg_sent = False
 
     @tasks.loop(seconds=1)
-    async def timer(self, channel):
+    async def timer(
+        self,
+        channel: (
+            discord.channel.VoiceChannel
+            | discord.channel.StageChannel
+            | discord.channel.TextChannel
+            | discord.threads.Thread
+        ),
+    ) -> None:
         """Timer callback to check if we need to post QOTD message."""
         current_time = datetime.datetime.now()
         if (
@@ -134,7 +169,11 @@ async def suggest(interaction: discord.Interaction, prompt: str) -> None:
 # user is considered admin if they have permission to manage channels. specific permission can be altered if needed.
 def if_admin(interaction: discord.Interaction) -> bool:
     """Return if user has manage channels permission."""
-    return interaction.user.guild_permissions.manage_channels
+    user = interaction.user
+    if not isinstance(user, discord.Member):
+        # Not a guild member, means direct message
+        return False
+    return user.guild_permissions.manage_channels
 
 
 @bot.tree.command(
@@ -153,7 +192,10 @@ async def review(interaction: discord.Interaction) -> None:
 
 # return error if user is not mod
 @review.error
-async def say_error(interaction: discord.Interaction, error):
+async def say_error(
+    interaction: discord.Interaction,
+    error: discord.app_commands.errors.AppCommandError,
+) -> None:
     """Handle check failure for review command."""
     await interaction.response.send_message(
         "Only administrators are allowed to review QoTD submissions.",
@@ -180,16 +222,40 @@ async def post_submission(interaction: discord.Interaction) -> None:
         )
 
 
+def get_moderation_channel() -> (
+    discord.channel.VoiceChannel
+    | discord.channel.StageChannel
+    | discord.channel.TextChannel
+    | discord.threads.Thread
+):
+    """Return moderation channel."""
+    mod_channel = bot.get_channel(MODERATION_CHANNEL)
+    if mod_channel is None:
+        raise ValueError(
+            f"{MODERATION_CHANNEL = } does not exist!",
+        )
+    if not isinstance(
+        mod_channel,
+        (
+            discord.channel.VoiceChannel,
+            discord.channel.StageChannel,
+            discord.channel.TextChannel,
+            discord.threads.Thread,
+        ),
+    ):
+        raise ValueError(
+            f"{MODERATION_CHANNEL = } is not the right type of channel!",
+        )
+    return mod_channel
+
+
 ### Post QoTD
 async def post_message(
     channel: (
         discord.channel.VoiceChannel
         | discord.channel.StageChannel
-        | discord.channel.ForumChannel
         | discord.channel.TextChannel
-        | discord.channel.CategoryChannel
         | discord.threads.Thread
-        | discord.abc.PrivateChannel
     ),
 ) -> None:
     """Post the question of the day in specified channel."""
@@ -203,7 +269,8 @@ async def post_message(
             # pop will remove from queue
             chosen_question_raw = lines.pop(line_to_choose).strip()
 
-        await bot.get_channel(MODERATION_CHANNEL).send(
+        mod_channel = get_moderation_channel()
+        await mod_channel.send(
             f"{len(lines)-1} Days of QoTDs remaining.",
         )
 
@@ -217,7 +284,7 @@ async def post_message(
 
         # sends QoTD
         await channel.send(
-            f" <@&{ROLEPING}> #{question_num}\n\t\t{chosen_question}",
+            f" <@&{ROLE_PING}> #{question_num}\n\t\t{chosen_question}",
         )
 
         # remove QoTD from pool
@@ -228,7 +295,8 @@ async def post_message(
             fp.write(f"{chosen_question.strip()}\n")
 
     except Exception as exc:
-        await bot.get_channel(MODERATION_CHANNEL).send(
+        mod_channel = get_moderation_channel()
+        await mod_channel.send(
             "There was an error posting the Question of The Day",
         )
         traceback.print_exception(exc)
@@ -239,14 +307,17 @@ async def post_message(
 @app_commands.check(if_admin)
 async def force_question(interaction: discord.Interaction) -> None:
     """Handle force question command."""
-    channel = bot.get_channel(QOTD_CHANNEL)
+    channel = get_qotd_channel()
     await post_message(channel)
     await interaction.response.send_message("Command received", ephemeral=True)
 
 
 # return error if user is not mod
 @force_question.error
-async def say_error2(interaction: discord.Interaction, error):
+async def say_error2(
+    interaction: discord.Interaction,
+    error: discord.app_commands.errors.AppCommandError,
+) -> None:
     """Handle forcequestion command failure."""
     await interaction.response.send_message(
         "Only administrators are allowed to manually post QoTD.",
@@ -265,7 +336,11 @@ class View(discord.ui.View):
         style=discord.ButtonStyle.green,
         emoji="✅",
     )
-    async def button_callback(self, button, interaction):
+    async def button_callback(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button[View],
+    ) -> None:
         """Handle approve button interaction."""
         try:
             # removes suggestion from Suggestion file and appends it to QoTD file
@@ -277,13 +352,13 @@ class View(discord.ui.View):
             with open(QOTD_PATH, "a") as f:
                 f.write(f"{data[0].strip()}\n")
 
-            await button.response.send_message(
+            await interaction.response.send_message(
                 "Prompt Approved!",
                 ephemeral=True,
             )
-            await post_submission(interaction=button)
+            await post_submission(interaction=interaction)
         except Exception as exc:
-            await button.response.send_message(
+            await interaction.response.send_message(
                 "Error approving prompt.",
                 ephemeral=True,
             )
@@ -294,7 +369,11 @@ class View(discord.ui.View):
         style=discord.ButtonStyle.red,
         emoji="❌",
     )
-    async def button_callback_two(self, button, interaction):
+    async def button_callback_two(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button[View],
+    ) -> None:
         """Handle reject button callback."""
         try:
             # removes suggestion from Suggestion file and appends it to RejectedQoTD file
@@ -306,13 +385,13 @@ class View(discord.ui.View):
             with open(REJECTED_QOTD_PATH, "a") as f:
                 f.write(f"{data[0].strip()}\n")
 
-            await button.response.send_message(
+            await interaction.response.send_message(
                 "Prompt Rejected!",
                 ephemeral=True,
             )
-            await post_submission(interaction=button)
+            await post_submission(interaction=interaction)
         except Exception as exc:
-            await button.response.send_message(
+            await interaction.response.send_message(
                 "Error rejecting prompt.",
                 ephemeral=True,
             )
@@ -327,6 +406,12 @@ def run() -> None:
 Either add ".env" file in bots folder with DISCORD_TOKEN=<token here> line,
 or set DISCORD_TOKEN environment variable.""",
         )
+    if QOTD_CHANNEL is None:
+        raise RuntimeError("No QOTDCHANNEL set")
+    if MODERATION_CHANNEL is None:
+        raise RuntimeError("No MODERATIONCHANNEL set")
+    if ROLE_PING is None:
+        raise RuntimeError("No ROLEPING set")
 
     # runs the bot
     bot.run(TOKEN)
