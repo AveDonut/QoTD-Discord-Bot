@@ -1,3 +1,27 @@
+"""Question of the Day Bot - Discord bot for posting question of the day."""
+
+# Question of the Day Bot - Discord bot for posting question of the day.
+# MIT License
+# Copyright (c) 2025 AveDonut
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 from __future__ import annotations
 
 import datetime
@@ -42,7 +66,7 @@ POSTATHOUR = 10
 class QotdBot(commands.Bot):
     """Question of the Day Discord bot."""
 
-    __slots__ = ()
+    __slots__ = ("msg_sent",)
 
     async def on_ready(self) -> None:
         """Print message when logged in."""
@@ -59,8 +83,11 @@ class QotdBot(commands.Bot):
             print(f"Error syncing commands: {exc}")
             traceback.print_exception(exc)
 
+        self.msg_sent = False
+
     @tasks.loop(seconds=1)
     async def timer(self, channel):
+        """Timer callback to check if we need to post QOTD message."""
         current_time = datetime.datetime.now()
         if (
             current_time.hour == POSTATHOUR
@@ -86,25 +113,28 @@ bot = QotdBot(command_prefix="!", intents=intents)
     description="Submit suggestions for future QoTD!",
 )
 async def suggest(interaction: discord.Interaction, prompt: str) -> None:
+    """Handle suggest command interaction."""
     try:
-        with open(SUGGESTIONS_PATH, "a") as f:
-            f.write(f"{prompt.strip()}\n")
+        with SUGGESTIONS_PATH.open("a", encoding="utf-8") as fp:
+            fp.write(f"{prompt.strip()}\n")
 
         await interaction.response.send_message(
             "Prompt Submitted!\nYour prompt will undergo review. Keep an eye out for it in future QoTD!",
             ephemeral=True,
         )
-    except:
+    except Exception as exc:
         await interaction.response.send_message(
             "There was an issue receiving your submission.",
             ephemeral=True,
         )
+        traceback.print_exception(exc)
 
 
 ### QoTD Submissions mod review
 # user is considered admin if they have permission to manage channels. specific permission can be altered if needed.
-def if_admin(interaction: discord.Interaction):
-    return interaction.user.guild_permissions.manage_channels is True
+def if_admin(interaction: discord.Interaction) -> bool:
+    """Return if user has manage channels permission."""
+    return interaction.user.guild_permissions.manage_channels
 
 
 @bot.tree.command(
@@ -112,41 +142,42 @@ def if_admin(interaction: discord.Interaction):
     description="Begin reviewing QoTD submissions.",
 )
 @app_commands.check(if_admin)
-async def Review(interaction: discord.Interaction) -> None:
+async def review(interaction: discord.Interaction) -> None:
+    """Handle review command interaction."""
     await interaction.response.send_message(
         "Beginning Review...",
         ephemeral=True,
     )
-    await PostSubmission(interaction=interaction)
+    await post_submission(interaction=interaction)
 
 
 # return error if user is not mod
-@Review.error
+@review.error
 async def say_error(interaction: discord.Interaction, error):
+    """Handle check failure for review command."""
     await interaction.response.send_message(
         "Only administrators are allowed to review QoTD submissions.",
         ephemeral=True,
     )
 
 
-# posts embed of submission to review
-async def PostSubmission(interaction: discord.Interaction) -> None:
-    with open(SUGGESTIONS_PATH) as f:
-        lines = f.readlines()
+async def post_submission(interaction: discord.Interaction) -> None:
+    """Post embed of submission to review."""
+    lines = SUGGESTIONS_PATH.read_text("utf-8").splitlines()
 
-        if lines != []:
-            embed = discord.Embed(title=lines[0])
-            embed.set_footer(text=f"{len(lines)} submissions awaiting review")
-            await interaction.followup.send(
-                embed=embed,
-                ephemeral=True,
-                view=View(),
-            )
-        else:
-            await interaction.followup.send(
-                "There are currently no submissions to review!",
-                ephemeral=True,
-            )
+    if lines:
+        embed = discord.Embed(title=lines[0])
+        embed.set_footer(text=f"{len(lines)} submissions awaiting review")
+        await interaction.followup.send(
+            embed=embed,
+            ephemeral=True,
+            view=View(),
+        )
+    else:
+        await interaction.followup.send(
+            "There are currently no submissions to review!",
+            ephemeral=True,
+        )
 
 
 ### Post QoTD
@@ -159,64 +190,64 @@ async def post_message(
         | discord.channel.CategoryChannel
         | discord.threads.Thread
         | discord.abc.PrivateChannel
-        | None
     ),
 ) -> None:
+    """Post the question of the day in specified channel."""
     try:
-        with open(QOTD_PATH, errors="ignore") as f:
-            lines = f.readlines()
-            if lines != []:
-                line_to_choose = random.randint(0, len(lines) - 1)
-                chose_question_raw = lines[line_to_choose]
+        lines = QOTD_PATH.read_text("utf-8").splitlines()
+        chosen_question_raw = "<No questions remain>"
+        if lines:
+            # S311: Standard pseudo-random generators are not suitable for cryptographic purposes
+            # Not using for cryptography, so it's fine.
+            line_to_choose = random.randrange(len(lines))  # noqa: S311
+            # pop will remove from queue
+            chosen_question_raw = lines.pop(line_to_choose).strip()
 
-            if len(lines) == 8:
-                await bot.get_channel(MODERATION_CHANNEL).send(
-                    "7 Days of QoTDs remaining.",
-                )
+        await bot.get_channel(MODERATION_CHANNEL).send(
+            f"{len(lines)-1} Days of QoTDs remaining.",
+        )
 
-        with open(PAST_QOTD_PATH) as f:
-            pastlines = f.readlines()
-            question_num = len(pastlines) + 1
+        pastlines = PAST_QOTD_PATH.read_text("utf-8").splitlines()
+        question_num = len(pastlines) + 1
 
-        # ensures the question ends with a ?
-        if chose_question_raw.strip()[-1] != "?":
-            chose_question = chose_question_raw.strip() + "?"
-        else:
-            chose_question = chose_question_raw.strip()
+        # ensures the question ends with a '?' sign
+        chosen_question = chosen_question_raw
+        if chosen_question[-1] != "?":
+            chosen_question += "?"
 
         # sends QoTD
         await channel.send(
-            f" <@&{ROLEPING}> #{question_num}\n\t\t{chose_question}",
+            f" <@&{ROLEPING}> #{question_num}\n\t\t{chosen_question}",
         )
 
-        # removes QoTD from pool
-        with open(QOTD_PATH, "w") as f:
-            for line in lines:
-                if line != chose_question_raw:
-                    f.write(line)
+        # remove QoTD from pool
+        QOTD_PATH.write_text("\n".join(lines), encoding="utf-8")
 
         # writes QoTD to past QoTD file
-        with open(PAST_QOTD_PATH, "a") as f:
-            f.write(f"{chose_question.strip()}\n")
+        with PAST_QOTD_PATH.open("a", encoding="utf-8") as fp:
+            fp.write(f"{chosen_question.strip()}\n")
 
-    except:
+    except Exception as exc:
         await bot.get_channel(MODERATION_CHANNEL).send(
             "There was an error posting the Question of The Day",
         )
+        traceback.print_exception(exc)
 
 
 # Command to post a QoTD manually
 @bot.tree.command(name="forcequestion", description="Post QoTD manually")
 @app_commands.check(if_admin)
-async def ForceQoTD(interaction: discord.Interaction) -> None:
+async def force_question(interaction: discord.Interaction) -> None:
+    """Handle force question command."""
     channel = bot.get_channel(QOTD_CHANNEL)
     await post_message(channel)
     await interaction.response.send_message("Command received", ephemeral=True)
 
 
 # return error if user is not mod
-@ForceQoTD.error
+@force_question.error
 async def say_error2(interaction: discord.Interaction, error):
+    """Handle forcequestion command failure."""
     await interaction.response.send_message(
         "Only administrators are allowed to manually post QoTD.",
         ephemeral=True,
@@ -225,12 +256,17 @@ async def say_error2(interaction: discord.Interaction, error):
 
 ### Review Buttons
 class View(discord.ui.View):
+    """Review View."""
+
+    __slots__ = ()
+
     @discord.ui.button(
         label="Approve",
         style=discord.ButtonStyle.green,
         emoji="✅",
     )
     async def button_callback(self, button, interaction):
+        """Handle approve button interaction."""
         try:
             # removes suggestion from Suggestion file and appends it to QoTD file
             with open(SUGGESTIONS_PATH) as fin:
@@ -245,12 +281,13 @@ class View(discord.ui.View):
                 "Prompt Approved!",
                 ephemeral=True,
             )
-            await PostSubmission(interaction=button)
-        except:
+            await post_submission(interaction=button)
+        except Exception as exc:
             await button.response.send_message(
                 "Error approving prompt.",
                 ephemeral=True,
             )
+            traceback.print_exception(exc)
 
     @discord.ui.button(
         label="Reject",
@@ -258,6 +295,7 @@ class View(discord.ui.View):
         emoji="❌",
     )
     async def button_callback_two(self, button, interaction):
+        """Handle reject button callback."""
         try:
             # removes suggestion from Suggestion file and appends it to RejectedQoTD file
             with open(SUGGESTIONS_PATH) as fin:
@@ -272,12 +310,13 @@ class View(discord.ui.View):
                 "Prompt Rejected!",
                 ephemeral=True,
             )
-            await PostSubmission(interaction=button)
-        except:
+            await post_submission(interaction=button)
+        except Exception as exc:
             await button.response.send_message(
                 "Error rejecting prompt.",
                 ephemeral=True,
             )
+            traceback.print_exception(exc)
 
 
 def run() -> None:
