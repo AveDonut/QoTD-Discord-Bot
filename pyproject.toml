@@ -1,28 +1,88 @@
+[build-system]
+requires = ["setuptools >= 64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qotd_bot"
+dynamic = ["version"]
+authors = [
+  { name="AveDonut", email="ehangoosch@gmail.com" },
+]
+description = "Question of the Day Discord Bot"
+readme = {file = "README.md", content-type = "text/markdown"}
+license = {file = "LICENSE"}
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Games/Entertainment",
+    "Topic :: Games/Entertainment :: Board Games",
+    "Topic :: Games/Entertainment :: Turn Based Strategy",
+    "Topic :: Utilities",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+keywords = [
+    "discord", "bot", "question-of-the-day",
+]
+dependencies = [
+    "discord.py~=2.5.0",
+    "audioop-lts; python_version>='3.13'",
+    "python-dotenv~=1.0.0",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "qotd_bot.__version__"}
+
+[project.urls]
+"Source" = "https://github.com/AveDonut/QoTD-Discord-Bot"
+"Bug Tracker" = "https://github.com/AveDonut/QoTD-Discord-Bot/issues"
+
+[project.gui-scripts]
+run_qotd_bot = "qotd_bot:run"
+
+[project.optional-dependencies]
+tests = [
+    "pytest>=5.0",
+    "pytest-cov>=6.0.0",
+    "pytest-trio>=0.8.0",
+    "coverage>=7.2.5",
+    "uv>=0.5.21",
+]
+tools = [
+    'black>=24.10.0; implementation_name == "cpython"',
+    "ruff>=0.9.2",
+    "codespell>=2.3.0",
+    "mypy>=1.15.0",
+]
+
+[tool.setuptools.package-data]
+qotd_bot = ["py.typed", "*.txt"]
+
+[tool.uv]
+package = true
+
 [tool.mypy]
-files = ["QoTDBot.py",]
-check_untyped_defs = true
-disallow_any_decorated = true
-disallow_any_generics = true
-disallow_any_unimported = true
-disallow_incomplete_defs = true
-disallow_subclassing_any = true
-disallow_untyped_calls = true
-disallow_untyped_decorators = true
-disallow_untyped_defs = true
-ignore_missing_imports = true
-local_partial_types = true
-no_implicit_optional = true
-no_implicit_reexport = true
+files = ["src/qotd_bot/",]
 show_column_numbers = true
 show_error_codes = true
 show_traceback = true
+disallow_any_decorated = true
+disallow_any_unimported = true
+ignore_missing_imports = true
+local_partial_types = true
+no_implicit_optional = true
 strict = true
-strict_equality = true
-warn_redundant_casts = true
-warn_return_any = true
 warn_unreachable = true
-warn_unused_configs = true
-warn_unused_ignores = true
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
@@ -92,4 +152,43 @@ extend-ignore = [
     "D100",  # undocumented-public-module
     "D103",  # undocumented-public-function
     "D107",  # undocumented-public-init
+]
+
+[tool.pytest.ini_options]
+addopts = "--cov-report=xml --cov-report=term-missing --cov=qotd_bot"
+testpaths = [
+    "tests",
+]
+
+[tool.coverage.run]
+branch = true
+source_pkgs = ["qotd_bot"]
+omit = [
+    "__init__.py",
+]
+parallel = true
+relative_files = true
+source = ["."]
+
+[tool.coverage.report]
+precision = 1
+skip_covered = true
+exclude_also = [
+    "pragma: no cover",
+    "abc.abstractmethod",
+    "if TYPE_CHECKING.*:",
+    "if _t.TYPE_CHECKING:",
+    "if t.TYPE_CHECKING:",
+    "@overload",
+    'class .*\bProtocol\b.*\):',
+    "raise NotImplementedError",
+]
+partial_branches = [
+    "pragma: no branch",
+    "if not TYPE_CHECKING:",
+    "if not _t.TYPE_CHECKING:",
+    "if not t.TYPE_CHECKING:",
+    "if .* or not TYPE_CHECKING:",
+    "if .* or not _t.TYPE_CHECKING:",
+    "if .* or not t.TYPE_CHECKING:",
 ]

@@ -24,6 +24,11 @@
 
 from __future__ import annotations
 
+__title__ = "QoTDBot"
+__author__ = "AveDonut"
+__license__ = "MIT"
+__version__ = "0.0.0"
+
 import datetime
 import os
 import random
